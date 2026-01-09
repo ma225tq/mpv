@@ -1,7 +1,8 @@
 This fork is modified for embedding in open-source music player Stylus. 
 
-***Changes include**
-*- `--macos-parent-bundle-id=<id>` — When set, mpv runs as an accessory app (no dock icon) and clicking Now Playing opens the parent app instead of mpv
+**Changes include:**
+
+- `--macos-parent-bundle-id=<id>` — When set, mpv runs as an accessory app (no dock icon) and clicking Now Playing opens the parent app instead of mpv
 - `--macos-now-playing-icon=<path>` — Custom icon for Now Playing info center
 - `set-artwork <path>` — Set Now Playing artwork from an external image file (via `script-message`)
 - Changed app icon to Stylus logo to work with Stylus in Now Playing
