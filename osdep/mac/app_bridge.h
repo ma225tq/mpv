@@ -100,6 +100,8 @@ struct macos_opts {
     int cocoa_cb_sw_renderer;
     bool cocoa_cb_10bit_context;
     int cocoa_cb_output_csp;
+    char *macos_parent_bundle_id;
+    char *macos_now_playing_icon;
 };
 
 void cocoa_init_media_keys(void);

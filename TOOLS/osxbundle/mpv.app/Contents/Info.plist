@@ -123,11 +123,11 @@
     <key>CFBundleIconName</key>
     <string>icon</string>
     <key>CFBundleIdentifier</key>
-    <string>io.mpv</string>
+    <string>com.stylus.mpv-audio</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>mpv</string>
+    <string>Stylus Audio (MPV)</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

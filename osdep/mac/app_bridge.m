@@ -88,6 +88,8 @@ const struct m_sub_options macos_conf = {
             {"srgb-linear", MAC_CSP_SRGB_LINEAR},
             {"rgb-linear", MAC_CSP_RGB_LINEAR},
             {"adobe", MAC_CSP_ADOBE})},
+        {"macos-parent-bundle-id", OPT_STRING(macos_parent_bundle_id)},
+        {"macos-now-playing-icon", OPT_STRING(macos_now_playing_icon)},
         {0}
     },
     .size = sizeof(struct macos_opts),

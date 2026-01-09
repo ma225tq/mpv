@@ -66,6 +66,13 @@ class AppHub: NSObject {
             _ = path.withCString { setenv("PATH", $0, 1) }
         }
 
+        // If parent bundle ID is set, run as accessory app (no dock icon)
+        if option?.mac.macos_parent_bundle_id != nil {
+            DispatchQueue.main.async {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+
 #if HAVE_MACOS_MEDIA_PLAYER
         remote?.registerEvents()
 #endif

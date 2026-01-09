@@ -48,8 +48,8 @@ class RemoteCommandCenter: EventSubscriber {
     var configs: [MPRemoteCommand: Config] = [:]
     var disabledCommands: [MPRemoteCommand] = []
     var isPaused: Bool = false { didSet { updateInfoCenter() } }
-    var duration: Int64 = 0 { didSet { updateInfoCenter() } }
-    var position: Int64 = 0 { didSet { updateInfoCenter() } }
+    var duration: Double = 0 { didSet { updateInfoCenter() } }
+    var position: Double = 0 { didSet { updateInfoCenter() } }
     var rate: Double = 1 { didSet { updateInfoCenter() } }
     var title: String = "" { didSet { updateInfoCenter() } }
     var chapter: String? { didSet { updateInfoCenter() } }
@@ -104,8 +104,8 @@ class RemoteCommandCenter: EventSubscriber {
     }
 
     func registerEvents() {
-        event?.subscribe(self, event: .init(name: "duration", format: MPV_FORMAT_INT64))
-        event?.subscribe(self, event: .init(name: "time-pos", format: MPV_FORMAT_INT64))
+        event?.subscribe(self, event: .init(name: "duration", format: MPV_FORMAT_DOUBLE))
+        event?.subscribe(self, event: .init(name: "time-pos", format: MPV_FORMAT_DOUBLE))
         event?.subscribe(self, event: .init(name: "speed", format: MPV_FORMAT_DOUBLE))
         event?.subscribe(self, event: .init(name: "pause", format: MPV_FORMAT_FLAG))
         event?.subscribe(self, event: .init(name: "media-title", format: MPV_FORMAT_STRING))
@@ -116,7 +116,34 @@ class RemoteCommandCenter: EventSubscriber {
         event?.subscribe(self, event: .init(name: "track-list", format: MPV_FORMAT_NODE))
     }
 
+    var parentBundleId: String? {
+        guard let cString = appHub.option?.mac.macos_parent_bundle_id else { return nil }
+        return String(cString: cString)
+    }
+
+    var customIconPath: String? {
+        guard let cString = appHub.option?.mac.macos_now_playing_icon else { return nil }
+        return String(cString: cString)
+    }
+
+    func setExternalArtwork(path: String) {
+        queue.async {
+            if let image = NSImage(contentsOfFile: path) {
+                self.coverLock.withLock {
+                    self.cover = image
+                    self.coverPath = path
+                }
+            }
+        }
+    }
+
     func start() {
+        // Load custom icon if specified
+        if let iconPath = customIconPath,
+           let customIcon = NSImage(contentsOfFile: iconPath) {
+            defaultCover = customIcon
+        }
+
         for (cmd, config) in configs {
             cmd.isEnabled = true
             cmd.addTarget(handler: config.handler)
@@ -124,10 +151,31 @@ class RemoteCommandCenter: EventSubscriber {
 
         updateInfoCenter()
 
+        NSLog("[mpv-remote] start() called")
+        // Always register the notification - check parentBundleId lazily when it fires
         NotificationCenter.default.addObserver(
             forName: NSApplication.willBecomeActiveNotification,
             object: nil,
-            queue: nil) { _ in self.makeCurrent() }
+            queue: nil) { [weak self] _ in
+                guard let self = self else { return }
+                if let bundleId = self.parentBundleId {
+                    NSLog("[mpv-remote] willBecomeActiveNotification received, launching: \(bundleId)")
+                    let success = NSWorkspace.shared.launchApplication(
+                        withBundleIdentifier: bundleId,
+                        options: [],
+                        additionalEventParamDescriptor: nil,
+                        launchIdentifier: nil
+                    )
+                    NSLog("[mpv-remote] launchApplication result: \(success)")
+                    // Re-hide mpv immediately
+                    DispatchQueue.main.async {
+                        NSApp.setActivationPolicy(.accessory)
+                    }
+                } else {
+                    NSLog("[mpv-remote] No parent bundle ID, using makeCurrent()")
+                    self.makeCurrent()
+                }
+            }
     }
 
     func stop() {
@@ -169,16 +217,7 @@ class RemoteCommandCenter: EventSubscriber {
     }
 
     func updateCover(tracks: [Any?]) {
-        coverLock.withLock {
-            coverTime = mach_absolute_time()
-            coverPath = nil
-            cover = nil
-            coverThumb = nil
-
-            // read cover image on separate thread
-            queue.async { self.generateCover(tracks: tracks, time: self.coverTime) }
-            generateCoverThumb(time: self.coverTime)
-        }
+        // Skip - Stylus provides artwork via setExternalArtwork
     }
 
     func generateCover(tracks: [Any?], time: UInt64) {
@@ -257,9 +296,13 @@ class RemoteCommandCenter: EventSubscriber {
 
     func handle(event: EventHelper.Event) {
         switch event.name {
-        case "time-pos": position = max(event.int ?? 0, 0)
+        case "time-pos":
+            let newPosition = max(event.double ?? 0, 0)
+            if Int((floor(newPosition) - floor(position)) / rate) != 0 {
+                position = newPosition
+            }
         case "pause": isPaused = event.bool ?? false
-        case "duration": duration = event.int ?? 0
+        case "duration": duration = event.double ?? 0
         case "speed": rate = event.double ?? 1
         case "media-title": title = event.string ?? ""
         case "chapter-metadata/title": chapter = event.string

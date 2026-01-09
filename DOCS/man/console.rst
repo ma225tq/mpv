@@ -81,12 +81,6 @@ PGDN
 Ctrl+r
     Search the command history. See `SELECT`_ for the key bindings in this mode.
 
-Shift+UP
-    Scroll the log one line up.
-
-Shift+DOWN
-    Scroll the log one line down.
-
 INSERT
     Toggle insert mode.
 

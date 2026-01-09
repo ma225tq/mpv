@@ -113,6 +113,8 @@ class EventHelper {
         switch event.pointee.event_id {
         case MPV_EVENT_PROPERTY_CHANGE:
             handle(property: event)
+        case MPV_EVENT_CLIENT_MESSAGE:
+            handle(clientMessage: event)
         default:
             for (_, subscriber) in events[String(describing: event.pointee.event_id)] ?? [:] {
                 subscriber.handle(event: .init(name: String(describing: event.pointee.event_id)))
@@ -123,6 +125,23 @@ class EventHelper {
             mpv_destroy(mpv)
             mpv = nil
         }
+    }
+
+    func handle(clientMessage mpvEvent: UnsafeMutablePointer<mpv_event>) {
+        let pData = OpaquePointer(mpvEvent.pointee.data)
+        guard let msg = UnsafePointer<mpv_event_client_message>(pData)?.pointee else {
+            return
+        }
+
+        guard msg.num_args >= 1, let cmd = msg.args[0] else { return }
+        let command = String(cString: cmd)
+
+#if HAVE_MACOS_MEDIA_PLAYER
+        if command == "set-artwork" && msg.num_args >= 2, let pathArg = msg.args[1] {
+            let artworkPath = String(cString: pathArg)
+            appHub.remote?.setExternalArtwork(path: artworkPath)
+        }
+#endif
     }
 
     func handle(property mpvEvent: UnsafeMutablePointer<mpv_event>) {
@@ -142,8 +161,6 @@ class EventHelper {
                 event = .init(name: name, format: format, bool: TypeHelper.toBool(property.data))
             case MPV_FORMAT_DOUBLE:
                 event = .init(name: name, format: format, double: TypeHelper.toDouble(property.data))
-            case MPV_FORMAT_INT64:
-                event = .init(name: name, format: format, int: TypeHelper.toInt(property.data))
             case MPV_FORMAT_NODE:
                 let node = TypeHelper.toNode(property.data)
                 event = .init(
