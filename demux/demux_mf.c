@@ -64,6 +64,9 @@ static mf_t *open_mf_pattern(void *talloc_ctx, struct demuxer *d, char *filename
     mf_t *mf = talloc_zero(talloc_ctx, mf_t);
     mf->log = log;
 
+    if (!filename || !filename[0])
+        return mf;
+
     if (filename[0] == '@') {
         struct stream *s = stream_create(filename + 1,
                             d->stream_origin | STREAM_READ, d->cancel, d->global);
