@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: "x64"
+            os: "windows-latest"
+          - target: aarch64-pc-windows-msvc
+            arch: "arm64"
+            os: "windows-11-arm"
+    env:
+      VS: "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise"
+      CC: "ccache clang"
+      CXX: "ccache clang++"
+      CC_LD: "lld-link"
+      CXX_LD: "lld-link"
+      WINDRES: "llvm-rc"
+      RUST_LD: "lld-link"
+      RUSTC: "rustc --target ${{ matrix.target }}"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_DIR: "${{ github.workspace }}\\.ccache"
+      CCACHE_MAXSIZE: 500M
+    steps:
+      - name: Disable autocrlf
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          python -m pip install meson==1.9.2
+          choco install ccache nasm
+          ./ci/install-cmake.ps1 -arch ${{ matrix.arch }}
+
+      - name: Update Meson WrapDB
+        run: |
+          meson wrap update-db
+          meson wrap install expat
+          meson wrap install harfbuzz
+          meson wrap install libpng
+          meson wrap install zlib
+
+      - name: Build
+        id: build
+        run: |
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\LLVM\bin' -and `
+                                                             $_ -ne 'C:\Program Files\CMake\bin' -and `
+                                                             $_ -ne 'C:\Strawberry\c\bin' }) -join ';'
+          $env:PATH = "$pwd\cmake\bin;" + $env:PATH + ';C:\Program Files\NASM'
+          Import-Module "$env:VS\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $env:VS -SkipAutomaticLocation -DevCmdArguments "-arch=${{ matrix.arch }} -host_arch=${{ matrix.arch }}"
+          ./ci/build-win32.ps1
+
+      - name: Print build log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: cat ./build/meson-logs/meson-log.txt
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            build/mpv.???
+            build/mpv-*.bat
+            build/vulkan-*.dll
+            !build/mpv.lib
+
+  build-macos:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: "macos-15"
+            arch: "arm64"
+          - os: "macos-15-intel"
+            arch: "x64"
+          - os: "macos-26"
+            arch: "arm64"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Remove stray upstream python binary symlinks under /usr/local
+        run: |
+          find /usr/local/bin -lname '*/Library/Frameworks/Python.framework/*' -delete -print
+          brew unlink python && brew link --overwrite python
+
+      - name: Unlink pkg-config if the CI runner happens to have it already installed
+        run: |
+          find "$(brew config | grep HOMEBREW_PREFIX | cut -f 2- -d ' ')/bin" -lname '*/pkg-config@0*/*' -print -exec brew unlink pkg-config@0.29.2 \; -quit
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install -q autoconf automake pkgconf libtool python freetype fribidi little-cms2 \
+            luajit libass ffmpeg meson rust uchardet mujs libplacebo molten-vk vulkan-loader vulkan-headers
+
+      - name: Build with meson
+        id: build
+        run: ./ci/build-macos.sh
+        env:
+          TRAVIS_OS_NAME: "${{ matrix.os }}"
+
+      - name: Create App Bundle
+        run: |
+          meson compile -C build macos-bundle
+          tar -czvf mpv.tar.gz -C build mpv.app
+
+      - name: Print meson log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: cat ./build/meson-logs/meson-log.txt
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macos-${{ matrix.os }}-${{ matrix.arch }}
+          path: mpv.tar.gz
+
+  build-linux:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    container:
+      image: "registry.opensuse.org/home/mia/images/images/mpv-ci:stable-deps"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build with meson
+        id: build
+        run: ./ci/build-tumbleweed.sh
+
+      - name: Print meson log
+        if: ${{ failure() && steps.build.outcome == 'failure' }}
+        run: cat ./build/meson-logs/meson-log.txt
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp build/mpv dist/
+          tar -czvf mpv-linux-${{ matrix.arch }}.tar.gz -C dist mpv
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux-${{ matrix.arch }}
+          path: mpv-linux-${{ matrix.arch }}.tar.gz
+
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
